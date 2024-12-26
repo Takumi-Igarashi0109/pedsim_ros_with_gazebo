@@ -1,0 +1,163 @@
+<launch>
+   <!-- <arg name="world_file"  default="$(find amsl_gazebo_worlds)/worlds/ikuta_building_d_1f.world"/> -->
+    <arg name="world_file" default="$(find pedsim_gazebo_plugin)/worlds/eng_hall.world"/>
+    <arg name="scene_file" default="$(find pedsim_simulator)/scenarios/eng_hall.xml"/>
+    <arg name="base"       value="$(optenv ROBOT_BASE kobuki)"/> <!-- create, roomba -->
+    <arg name="battery"      value="$(optenv ROBOT_BATTERY /proc/acpi/battery/BAT0)"/>  <!-- /proc/acpi/battery/BAT0 -->
+    <arg name="gui" default="true" doc="Bring up the Gazebo graphical interface"/>
+    <arg name="stacks"       value="$(optenv ROBOT_STACKS hexagons)"/>  <!-- circles, hexagons -->
+    <arg name="laser_sensor" value="$(optenv ROBOT_LASER_SENSOR velodyne_kinect)"/>  <!-- laser, hokuyo lidar -->
+    <arg name="3d_sensor"    value="$(optenv TURTLEBOT_3D_SENSOR kinect)"/>  <!-- kinect, asus_xtion_pro -->
+    <arg name="map_pcd" default="$(env HOME)/pcd/output70001000.pcd"/>
+    <arg name="start" default="0"/>
+    <arg name="rate" default="3"/>
+    <arg name="leaf_size" default="0.32"/>
+
+    <arg name="default_queue_size" default="10"/>
+    <arg name="max_robot_speed" default="1.5"/>
+    <arg name="robot_mode" default="1"/>
+    <arg name="enable_groups" default="true"/>
+    <arg name="simulation_factor" default="1"/>
+    <arg name="update_rate" default="25.0"/>
+
+    <!-- initial pose -->
+    <arg name="pose_initial_x1" default="10.0"/>
+    <arg name="pose_initial_y1" default="10.0"/>
+    <arg name="pose_initial_x2" default="17.0"/>
+    <arg name="pose_initial_y2" default="17.0"/>
+    <arg name="pose_initial_theta" default="0.0"/>
+
+    <!-- Gazebo World -->
+    <include file="$(find robot_gazebo)/launch/empty_world.launch">
+        <arg name="use_sim_time" value="true"/>
+        <arg name="debug" value="false"/>
+        <arg name="gui" value="$(arg gui)" />
+        <arg name="world_name" value="$(arg world_file)"/>
+    </include>
+
+    <!-- Spawn PedSim Agents -->
+    <node pkg="pedsim_gazebo_plugin" type="spawn_pedsim_agents.py" name="spawn_pedsim_agents" output="screen"/>
+  <!-- Place gazebo frame at map frame -->
+
+    <node pkg="tf" type="static_transform_publisher" name="gazebo_map_broadcaster" args="0 0 0 0 0 0 /odom /base_footprint 10"/> 
+        
+    <!-- tf odom to map -->
+<!--         <node name="odom_tf_converter" pkg="robot_gazebo" type="odom_tf_converter">
+        <param name="pfi" value="map"/>
+        <param name="cfi" value="/odom"/>
+        <remap from="/tracker" to="/tracker"/>    
+    </node>  -->
+<!-- 
+    <node name="imu_to_map_converter" pkg="robot_gazebo" type="imu_to_map_converter" >     いらない？
+        <param name="pfi" value="map"/>
+        <param name="cfi" value="odom"/>
+        <param name="/imu/data" value="//imu" />
+    </node>
+
+    <node name="imu_sensor_plugin" pkg="gazebo_ros" type="imu_sensor_plugin" output="screen">　　いらない？
+        <param name="robotNamespace" value="/"/>
+        <param name="topicName" value="//imu"/>
+        <param name="rate" value="100.0"/>
+    </node>         -->
+    
+    
+
+    <include file="$(find robot_gazebo)/launch/includes/$(arg base).launch.xml">
+        <arg name="base" value="$(arg base)"/>
+        <arg name="stacks" value="$(arg stacks)"/>
+        <arg name="3d_sensor" value="$(arg 3d_sensor)"/>
+        <arg name="laser_sensor" value="$(arg laser_sensor)"/>
+        <arg name="initial_pose" value="-x $(arg pose_initial_x1) -y $(arg pose_initial_y1) -z $(arg pose_initial_theta)"/>
+        <arg name="mobile_base" default="mobile_base"/>
+    </include>
+
+
+    <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher">
+        <param name="publish_frequency" type="double" value="10" />
+        <param name="tf_prefix" value="" />
+    </node>
+
+    <node pkg="robot_gazebo" type="pointcloud_tf_changer_node" name="pointcloud_tf_changer">
+        <param name="target_frame" value="map"/>
+        <remap from="/velodyne_obstacles" to="/velodyne_obstacles"/>
+    </node>
+    
+
+    <!-- Save velodyen_pointcloud to pcd -->
+    <!-- <include file="$(find robot_gazebo)/launch/pcd_saver.launch">
+        <arg name="robot" value=""/>
+    </include> -->
+
+    <!-- Velodyen height map -->
+    <include file="$(find velodyne_pointcloud)/launch/VLP-32C_points.launch"/>
+    <node pkg="pcl_ros" type="pcd_to_pointcloud" name="pcd_to_pointcloud" args="$(arg map_pcd)" output="screen">
+        <param name="frame_id" value="map"/>
+        <param name="latch" value="true"/>
+        <remap from="/cloud_pcd" to="/map_cloud"/>
+    </node>
+
+    <!-- ndt -->
+    <node pkg="amsl_navigation_utils" type="map_cloud_downsampler" name="map_cloud_downsampler" output="screen" respawn="true">
+        <param name="leaf_size" value="$(arg leaf_size)"/>
+    </node>
+    <include file="$(find pedsim_simulator)/launch/ndt_multi.launch">
+        <!-- <arg name="map_cloud" value="/map_cloud"/> -->
+        <arg name="imu" value="imu"/>
+        <arg name="odom" value="odom"/>
+        <arg name="map_cloud" value="map_cloud/downsampled"/>
+        <arg name="leaf_size" value="$(arg leaf_size)"/>
+        <arg name="initialpose_topic" value="initialpose"/>
+    </include>
+
+    <node pkg="amsl_navigation_utils" type="odom_to_pose" name="odom_to_pose">
+        <remap from="/odom" to="/estimated_pose"/>
+        <remap from="/pose" to="/localized_pose"/>
+    </node>
+
+    <node pkg="amsl_navigation_utils" type="odom_broadcaster" name="odom_broadcaster"/>
+<!--         <node pkg="tf2_ros" type="static_transform_publisher" name="static_tf_velodyne" args="0 0 1.17 0 0 0 base_link velodyne"/>
+    <node pkg="tf2_ros" type="static_transform_publisher" name="static_tf_imu" args="0 0 1.08 1.5707963 3.1415927 0 base_link imu_link"/> 
+
+-->
+
+
+    <include file="$(find velodyne_height_map)/launch/amsl_velodyne_heightmap.launch">
+        <arg name="input_topic" value="/velodyne_points"/>
+    </include>
+
+    <include file="$(find dynamic_cloud_detector)/launch/dynamic_cloud_detector.launch">
+        <arg name="input_cloud" value="/velodyne_obstacles"/>
+      <!--   <arg name="odom_complement" value="/odom/complement"/> -->
+    </include>
+
+    <node pkg="complement" type="complement" name="complement">
+        <remap from="/odom" to="/odom"/>
+        <remap from="/imu/data" to="/imu"/>
+        <remap from="/odom/complement" to="/odom/complement"/>
+
+    </node>
+    <include file="$(find dynamic_obstacle_tracker)/launch/dynamic_obstacle_tracker.launch"/>
+
+
+    <node name="pedsim_simulator" pkg="pedsim_simulator" type="pedsim_simulator" output="screen">
+        <param name="scene_file" value="$(arg scene_file)" type="string"/>
+        <param name="default_queue_size" value="$(arg default_queue_size)" type="int"/>
+        <param name="max_robot_speed" value="$(arg max_robot_speed)" type="double"/>
+        <param name="robot_mode" value="$(arg robot_mode)" type="int"/>
+        <param name="enable_groups" value="$(arg enable_groups)" type="bool"/>
+        <param name="simulation_factor" value="$(arg simulation_factor)" type="double"/>
+        <param name="update_rate" value="$(arg update_rate)" type="double"/>
+        <param name="frame_id"  value="gazebo" />
+    </node>
+
+
+    <!-- Pointcloud Merge -->
+    <!-- <include file="$(find robot_gazebo)/launch/pcl/concat.launch"/> -->
+
+    <node pkg="rviz" type="rviz" name="rviz" args="-d $(find robot_gazebo)/rviz/multi_robot.rviz"/>
+
+        <!-- PedSim Visualizer -->
+    <include file="$(find pedsim_visualizer)/launch/visualizer.launch"/>
+
+</launch>
+

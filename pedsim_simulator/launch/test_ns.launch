@@ -110,14 +110,15 @@
             <param name="leaf_size" value="$(arg leaf_size)"/>
         </node>
         
-<!--         <include file="$(find pedsim_simulator)/launch/ndt_multi.launch">
+        <include file="$(find pedsim_simulator)/launch/ndt_multi.launch">
+            <!-- <arg name="map_cloud" value="/map_cloud"/> -->
             <arg name="odom" value="/$(arg robot_1)/odom_modified"/>
             <arg name="imu" value="/$(arg robot_1)/imu_modified"/>
             <arg name="estimated_pose" value="/$(arg robot_1)/estimated_pose"/>
             <arg name="map_cloud" value="map_cloud/downsampled"/>
             <arg name="leaf_size" value="$(arg leaf_size)"/>
             <arg name="initialpose_topic" value="initialpose"/>
-        </include> -->
+        </include>
 
         <node pkg="amsl_navigation_utils" type="odom_to_pose" name="odom_to_pose">
             <remap from="/$(arg robot_1)/odom" to="/$(arg robot_1)/estimated_pose"/>
@@ -153,7 +154,12 @@
         </node>
 
 
+
     </group>
+    
+    
+    <include file="$(find dynamic_obstacle_tracker)/launch/dynamic_obstacle_tracker.launch"/>
+
 
     <node name="pedsim_simulator" pkg="pedsim_simulator" type="pedsim_simulator" output="screen">
         <param name="scene_file" value="$(arg scene_file)" type="string"/>
